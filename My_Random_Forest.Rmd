@@ -1,0 +1,176 @@
+My Random Forest - predict the manner of exercises
+====================================================
+
+The goal of this project is to predict the manner in which people did their exercises, using data collected by accelerometers on the belt, forearm, arm, and dumbell of 6 participants.
+
+The data files for this project are downloaded from https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv and https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv.
+
+# Load data and R packages
+```{r}
+
+# setwd("~/Desktop/08-Practical Machine Learning/03-Course Project")
+
+pml.training <- read.csv("pml-training.csv")
+pml.testing <- read.csv("pml-testing.csv")
+
+library(psych)
+library(caret)
+library(randomForest)
+
+```
+
+# Check data
+```{r}
+
+str(pml.training) # see many variables contain NA, NaN, Inf or #DIV/0
+describe(pml.training) # see many variables have very few data in them (look at n)
+nearZeroVar(pml.training) # see many variables have near zero variations
+
+```
+
+Examinating data summaries shows that many variables either have very few data in them, contain NA, NaN, Inf or #DIV/0, have near zero variations, or (for factor variables) have more number of levels than that allowed by randomForest function. Therefore, columns that have these characteristics have to be removed first before they can be used in machine learning.
+
+# Data preprocessing
+```{r}
+
+#######################################
+# Remove columns containing a lot of NA
+#######################################
+
+# find columns containing a lot of NA
+pNA <- colSums(is.na(pml.training)) / dim(pml.training)[1]
+# find the names of those columns
+drops1 <- names(pNA[pNA > 0])
+# discard those columns
+pp.pml.training <- pml.training[,!(names(pml.training) %in% drops1)]
+
+################################################
+# Remove most columns containing factor variables
+# except for the last one ("classe")
+################################################
+
+# Find name of the columns containing factor variables except for the last one ("classe")
+drops2 <- character() # set up empty vector for column names
+n <- dim(pp.pml.training)[2]
+for(i in 1:n){
+    if(is.factor(pp.pml.training[, i]) && names(pp.pml.training)[i] != "classe"){
+        drops2 <- append(drops2, names(pp.pml.training)[i])          
+    }
+}
+# discard those columns
+pp.pml.training <- pp.pml.training[,!(names(pp.pml.training) %in% drops2)]
+
+################################################
+# Remove irrelevant columns 
+################################################
+
+# Discard the first 7 columns that are believed to be irrelevant
+drops3 <- c("X","user_name","raw_timestamp_part_1","raw_timestamp_part_2","cvtd_timestamp","new_window","num_window")
+pp.pml.training <- pp.pml.training[,!(names(pp.pml.training) %in% drops3)]
+  
+################################################
+# Check data after cleaning up 
+################################################
+
+# Make sure that all NA are removed
+all(colSums(is.na(pp.pml.training))==0)
+sum(complete.cases(pp.pml.training))
+
+# Make sure "classe" is the only factor variable left
+n <- 0
+colnum <- dim(pp.pml.training)[2]
+for(i in 1:colnum){
+    if(is.factor(pp.pml.training[, i])){
+        print(names(pp.pml.training)[i])
+        print(length(levels(pp.pml.training[, i])))
+        n <- n + 1
+    }
+}
+
+# Make sure no NA, NaN, Inf left
+n <- 0
+colnum <- dim(pp.pml.training)[2]
+for(i in 1:colnum){
+    if(NA %in% pp.pml.training[, i] || NaN %in% pp.pml.training[, i] || Inf %in% pp.pml.training[, i]){
+        print(names(pp.pml.training)[i])        
+        n <- n + 1
+    }
+}
+
+print(n)
+
+# Final check (the following commands are commented out to prevent too much output)
+
+# str(pp.pml.training)
+# describe(pp.pml.training)
+# nearZeroVar(pp.pml.training)
+
+################################################
+# Create training and cross-validation sets
+################################################
+inTrain <- createDataPartition(pp.pml.training$classe,
+                              p=0.75, list=FALSE)
+train <- pp.pml.training[inTrain,]
+validation <- pp.pml.training[-inTrain,]
+
+################################################
+# Clean up testing dataset
+################################################
+pp.pml.testing <- pml.testing[,!(names(pml.testing) %in% drops1)]
+pp.pml.testing <- pp.pml.testing[,!(names(pp.pml.testing) %in% drops2)]
+pp.pml.testing <- pp.pml.testing[,!(names(pp.pml.testing) %in% drops3)]
+
+```
+
+# Now it is time to train a random forest and cross-validate it
+```{r}
+# Train a random forest with randomForest. 
+# Set do.trace = FALSE to prevent too many outputs. Set it to TRUE when monotoring the process.
+set.seed(415)
+rf_fit <- randomForest(as.factor(classe) ~ ., data=train, importance=TRUE, ntree=2000, do.trace = FALSE)
+
+# Make a prediction on validation set
+Prediction <- predict(rf_fit, validation)
+
+# Calculate accuracy
+table(Prediction, validation$classe)
+sum(Prediction == validation$classe) / length(validation$classe)
+
+# Look at variable importance
+varImpPlot(rf_fit)
+```
+
+#Cross-validation result Looks promissing (accuracy = 0.9969). Let's make prediction on testing set, and write the answer to files for submission
+
+```{r}
+
+# Make prediction on testing set
+Prediction2 <- predict(rf_fit, pp.pml.testing)
+length(Prediction2)
+
+# Set up a folder to store the files
+if(!file.exists("./pred_answers")){
+    dir.create("./pred_answers")
+}
+
+# change the current working directory to new folder
+setwd("~/Desktop/08-Practical Machine Learning/03-Course Project/pred_answers")
+
+# Write the answer to files
+pml_write_files = function(x){
+  n = length(x)
+  for(i in 1:n){
+    filename = paste0("problem_id_",i,".txt")
+    write.table(x[i],file=filename,quote=FALSE,row.names=FALSE,col.names=FALSE)
+  }
+}
+
+pml_write_files(Prediction2)
+
+# change the current working directory back to original one
+setwd("~/Desktop/08-Practical Machine Learning/03-Course Project")
+
+```
+That is it. After submission of prediction on the test set, all 20 predictions are turn out to be correct.
+
+--- End of file ---
